@@ -15,9 +15,11 @@ const uint8_t dacconf = 0b01110000;
 const uint8_t adcconf1 = 0b00001100;
 const uint8_t adcconf2 = 0b00001101;
 
-
 int data = 0;
 int count = 0;
+
+boolean highVoltage = true;
+boolean highCurrent = false;
 
 void inline readADC() {
     uint16_t recv;
@@ -39,6 +41,10 @@ void inline readADC() {
     digitalWrite(ADCPIN, HIGH);
     Serial.print(";");
     Serial.print(recv&0x1FFF, DEC);
+    Serial.print(";");
+    Serial.print(highVoltage, DEC);
+    Serial.print(";");
+    Serial.print(highCurrent, DEC);
     // Newline at the end
     Serial.println("");
 }
@@ -64,7 +70,7 @@ void setup() {
   pinMode(ISCALE, OUTPUT);
   digitalWrite(DACPIN, HIGH);
   digitalWrite(ADCPIN, HIGH);
-  digitalWrite(VSCALE, LOW);  
+  digitalWrite(VSCALE, HIGH);  
   digitalWrite(ISCALE, LOW);
 
   digitalWrite(DACPIN, LOW);
@@ -96,6 +102,22 @@ void loop() {
     }
     if (in == '-') {
       data--;
+    }
+    if (in == 'v') {
+      digitalWrite(VSCALE, LOW);
+      highVoltage = false;
+    }
+    if (in == 'V') {
+      digitalWrite(VSCALE, HIGH);
+      highVoltage = true;
+    }
+    if (in == 'c') {
+      digitalWrite(ISCALE, LOW);
+      highCurrent = false;
+    }
+    if (in == 'C') {
+      digitalWrite(ISCALE, HIGH);
+      highCurrent = true;
     }
     if (in == 's' || in == 'S') {
       // Read set value
