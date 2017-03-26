@@ -26,6 +26,10 @@ class MyApp(QtWidgets.QWidget):
 
         self.current = 0
 
+        self.serialPort = "COM5"
+        self.serialSpeed = 38400
+        self.serial = serial.Serial()
+
         # Default values for sweeping
         self.sweepStart = 0
         self.sweepEnd = 1000
@@ -38,6 +42,7 @@ class MyApp(QtWidgets.QWidget):
 
         self.createButtons()
 
+        # 3 main window plots
         self.voltagePlot = pg.PlotWidget(title="Voltage drop")
         self.voltagePlot.setYRange(0, 4)
         self.voltagePlot.setLabel("left", text="Drop", units="V")
@@ -50,15 +55,19 @@ class MyApp(QtWidgets.QWidget):
         self.currentErrorPlot.setYRange(-2, 2)
         self.currentErrorPlot.setLabel("left", text="Current (μA)")
 
+        # Default grid layout
         self.layout = QtWidgets.QGridLayout()
-
         self.setLayout(self.layout)
-
         self.layout.addWidget(self.voltagePlot, 0, 0)
         self.layout.addWidget(self.currentPlot, 0, 1)
         self.layout.addWidget(self.currentErrorPlot, 1, 0)
 
+        # Left column in the control panel
+        left_column_layout = QtWidgets.QVBoxLayout()
+
+        # Text fields for displaying data
         label_layout = QtWidgets.QFormLayout()
+        left_column_layout.addLayout(label_layout)
 
         self.setCurrentLabel = QtWidgets.QLabel()
         self.setCurrentLabel.setText("0μA")
@@ -77,6 +86,24 @@ class MyApp(QtWidgets.QWidget):
         self.avgVoltageLabel.setText("0V")
         label_layout.addRow(QtWidgets.QLabel("Avg. voltage: "), self.avgVoltageLabel)
 
+        # Control buttons for serial
+        serial_control_layout = QtWidgets.QFormLayout()
+        self.serialPortInput = QtWidgets.QLineEdit(self.serialPort)
+        self.serialPortInput.setAlignment(QtCore.Qt.AlignRight)
+        self.serialSpeedInput = QtWidgets.QLineEdit(str(self.serialSpeed))
+        self.serialSpeedInput.setValidator(QtGui.QIntValidator())
+        self.serialSpeedInput.setAlignment(QtCore.Qt.AlignRight)
+        serial_control_layout.addRow(QtWidgets.QLabel("Serial port"), self.serialPortInput)
+        serial_control_layout.addRow(QtWidgets.QLabel("Speed"), self.serialSpeedInput)
+
+        self.btnSerialToggle = QtWidgets.QPushButton("Open serial")
+        self.btnSerialToggle.clicked.connect(self.serialButtonClick)
+        serial_control_layout.addRow(self.btnSerialToggle)
+
+        left_column_layout.addStretch()
+        left_column_layout.addLayout(serial_control_layout)
+
+        # Sweep settings
         sweep_layout = QtWidgets.QFormLayout()
 
         self.btnSweepStart = QtWidgets.QPushButton("Sweep start")
@@ -126,19 +153,14 @@ class MyApp(QtWidgets.QWidget):
         sweep_layout.addRow(self.btnSweepStop)
 
         bottomRightLayout = QtWidgets.QHBoxLayout()
-        bottomRightLayout.addLayout(label_layout)
+        bottomRightLayout.addLayout(left_column_layout)
         bottomRightLayout.addLayout(self.btnLayout)
         bottomRightLayout.addLayout(sweep_layout)
 
         self.layout.addLayout(bottomRightLayout, 1, 1)
 
-        self.serial = serial.Serial("COM15", 38400, timeout=5)
-        self.serial.readline()
-        self.serial.readline()
-        self.serial.timeout = 0.05
-
+        # Set up buffers for data storage
         self.x = numpy.arange(samplesToStore)
-
         self.dropSamples = RingBuffer(samplesToStore)
         self.currentSamples = RingBuffer(samplesToStore)
         self.currentSetSamples = RingBuffer(samplesToStore)
@@ -147,7 +169,6 @@ class MyApp(QtWidgets.QWidget):
         self.timer = QTimer()
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.update)
-        self.timer.start(100)
 
         self.sweepTimer = QTimer()
         self.sweepTimer.setInterval(self.sweepInterval)
@@ -157,6 +178,32 @@ class MyApp(QtWidgets.QWidget):
         # self.timer2.setInterval(5000)
         # self.timer2.timeout.connect(self.randomDAC)
         # self.timer2.start(5000)
+
+    def serialButtonClick(self):
+        if (self.serial.is_open):
+            self.stopSerial()
+        else:
+            self.startSerial()
+        return
+
+    def startSerial(self):
+        self.serialPort=self.serialPortInput.text()
+        self.serialSpeed=int(self.serialSpeedInput.text())
+        try:
+            self.serial = serial.Serial(self.serialPort, self.serialSpeed, timeout=5)
+        except serial.SerialException as exc:
+            print("Opening serial port failed: " + str(exc))
+            return
+        self.btnSerialToggle.setText("Close serial")
+        self.serial.readline()
+        self.serial.readline()
+        self.serial.timeout = 0.05
+        self.timer.start(100)
+
+    def stopSerial(self):
+        self.timer.stop()
+        self.serial.close()
+        self.btnSerialToggle.setText("Open serial")
 
     def createButtons(self):
         self.btnIncrease = QtWidgets.QPushButton('+0.1 μA')
