@@ -7,6 +7,19 @@ import serial
 
 samplesToStore = 256
 
+class VBar(QtWidgets.QFrame):
+    def __init__(self):
+        super().__init__()
+        self.setFrameShape(QtWidgets.QFrame.VLine)
+        self.setFrameShadow(QtWidgets.QFrame.Sunken)
+
+
+class HBar(QtWidgets.QFrame):
+    def __init__(self):
+        super().__init__()
+        self.setFrameShape(QtWidgets.QFrame.HLine)
+        self.setFrameShadow(QtWidgets.QFrame.Sunken)
+
 
 class RingBuffer:
     def __init__(self, size):
@@ -20,11 +33,15 @@ class RingBuffer:
         return self.data
 
 
+# TODO: Popups for error
 class MyApp(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
 
         self.current = 0
+
+        self.highVoltage = True
+        self.highCurrent = False
 
         self.serialPort = "COM5"
         self.serialSpeed = 38400
@@ -40,15 +57,17 @@ class MyApp(QtWidgets.QWidget):
         self.sweepValuesCurrent = []
         self.sweepValues = []
 
+        self.setWindowTitle("IV-grapher")
+
         self.createButtons()
 
         # 3 main window plots
         self.voltagePlot = pg.PlotWidget(title="Voltage drop")
-        self.voltagePlot.setYRange(0, 4)
+        self.voltagePlot.setYRange(0, 21)
         self.voltagePlot.setLabel("left", text="Drop", units="V")
 
         self.currentPlot = pg.PlotWidget(title="Current")
-        self.currentPlot.setYRange(0, 450)
+        self.currentPlot.setYRange(0, 40000)
         self.currentPlot.setLabel("left", text="Current (μA)")
 
         self.currentErrorPlot = pg.PlotWidget(title="Current error")
@@ -86,6 +105,17 @@ class MyApp(QtWidgets.QWidget):
         self.avgVoltageLabel.setText("0V")
         label_layout.addRow(QtWidgets.QLabel("Avg. voltage: "), self.avgVoltageLabel)
 
+        # Controls for high/low voltage and current
+        scaling_control_layout = QtWidgets.QFormLayout()
+        self.highVoltageInput = QtWidgets.QCheckBox("High voltage mode")
+        self.highVoltageInput.setChecked(self.highVoltage)
+        self.highVoltageInput.stateChanged.connect(self.highVoltageChange)
+        self.highCurrentInput = QtWidgets.QCheckBox("High current mode")
+        self.highCurrentInput.setChecked(self.highCurrent)
+        self.highCurrentInput.stateChanged.connect(self.highCurrentChange)
+        scaling_control_layout.addRow(self.highVoltageInput)
+        scaling_control_layout.addRow(self.highCurrentInput)
+
         # Control buttons for serial
         serial_control_layout = QtWidgets.QFormLayout()
         self.serialPortInput = QtWidgets.QLineEdit(self.serialPort)
@@ -101,6 +131,8 @@ class MyApp(QtWidgets.QWidget):
         serial_control_layout.addRow(self.btnSerialToggle)
 
         left_column_layout.addStretch()
+        left_column_layout.addLayout(scaling_control_layout)
+        left_column_layout.addWidget(HBar())
         left_column_layout.addLayout(serial_control_layout)
 
         # Sweep settings
@@ -112,6 +144,8 @@ class MyApp(QtWidgets.QWidget):
         self.btnSweepStop = QtWidgets.QPushButton("Sweep stop")
         self.btnSweepStop.clicked.connect(self.stopSweep)
         self.btnSweepStop.setEnabled(False)
+
+        self.sweepProgressBar = QtWidgets.QProgressBar()
 
         start_sweep_row = QtWidgets.QHBoxLayout()
         self.sweepStartInput = QtWidgets.QLineEdit(str(self.sweepStart / 10))
@@ -151,10 +185,13 @@ class MyApp(QtWidgets.QWidget):
 
         sweep_layout.addRow(self.btnSweepStart)
         sweep_layout.addRow(self.btnSweepStop)
+        sweep_layout.addRow(self.sweepProgressBar)
 
         bottomRightLayout = QtWidgets.QHBoxLayout()
         bottomRightLayout.addLayout(left_column_layout)
+        bottomRightLayout.addWidget(VBar())
         bottomRightLayout.addLayout(self.btnLayout)
+        bottomRightLayout.addWidget(VBar())
         bottomRightLayout.addLayout(sweep_layout)
 
         self.layout.addLayout(bottomRightLayout, 1, 1)
@@ -178,6 +215,20 @@ class MyApp(QtWidgets.QWidget):
         # self.timer2.setInterval(5000)
         # self.timer2.timeout.connect(self.randomDAC)
         # self.timer2.start(5000)
+
+    def highVoltageChange(self):
+        self.highVoltage = self.highVoltageInput.isChecked()
+        if (self.highVoltage):
+            self.serial.write('V'.encode('ascii'))
+        else:
+            self.serial.write('v'.encode('ascii'))
+
+    def highCurrentChange(self):
+        self.highCurrent = self.highCurrentInput.isChecked()
+        if (self.highCurrent):
+            self.serial.write('C'.encode('ascii'))
+        else:
+            self.serial.write('c'.encode('ascii'))
 
     def serialButtonClick(self):
         if (self.serial.is_open):
@@ -237,24 +288,32 @@ class MyApp(QtWidgets.QWidget):
         while (self.serial.in_waiting > 5):
             line = self.serial.readline()
             line = line.decode('ascii')
+            linesplit = line.split(';')
 
-            self.currentSetSamples.append(int(line.split(';')[0]) / 10)
-            self.dropSamples.append(int(line.split(';')[1]) / 1000)
-            self.currentSamples.append(int(line.split(';')[2]) / 10)
-            self.currentErrorSamples.append((int(line.split(';')[2]) - int(line.split(';')[0])) / 10)
+            highVoltage = int(linesplit[3])
+            highCurrent = int(linesplit[4])
+            currentSet = int(linesplit[0])*(1+(99*highCurrent))/10
+            voltageDrop = int(linesplit[1])*(1+(9*highVoltage))/1000
+            currentRead = int(linesplit[2])*(1+(99*highCurrent))/10
 
-            self.setCurrentLabel.setText(str(int(line.split(';')[0]) / 10) + "μA")
-            self.voltageLabel.setText(str(int(line.split(';')[1]) / 1000) + "V")
-            self.currentLabel.setText(str(int(line.split(';')[2]) / 10) + "μA")
+            self.currentSetSamples.append(currentSet)
+            self.dropSamples.append(voltageDrop)
+            self.currentSamples.append(currentRead)
+            self.currentErrorSamples.append(currentRead - currentSet)
+
+            self.setCurrentLabel.setText(str(currentSet) + "μA")
+            self.voltageLabel.setText(str(voltageDrop) + "V")
+            self.currentLabel.setText(str(currentRead) + "μA")
             self.avgVoltageLabel.setText("{0:.4f}".format(numpy.nanmean(self.dropSamples.get())) + "V")
 
             if (self.sweepEnabled):
-                self.sweepValuesVolts.append(int(line.split(';')[1]) / 1000)
-                self.sweepValuesCurrent.append(int(line.split(';')[2]) / 10)
-                self.sweepValues.append((int(line.split(';')[1]) / 1000, int(line.split(';')[2]) / 10))
+                self.sweepValuesVolts.append(voltageDrop)
+                self.sweepValuesCurrent.append(currentRead)
+                self.sweepValues.append(voltageDrop, currentRead)
         return
 
     def writeDAC(self, data):
+        # TODO: Data sanity on input
         serdata = ("S" + str(data) + '\n').encode('ascii')
         self.serial.write(serdata)
         return
@@ -264,6 +323,7 @@ class MyApp(QtWidgets.QWidget):
         return
 
     def nudge(self, amount=1):
+        # TODO: Limit to sensible ranges
         self.current += amount
         self.writeDAC(self.current)
         return
@@ -275,6 +335,7 @@ class MyApp(QtWidgets.QWidget):
                 self.stopSweep()
                 self.current = self.sweepEnd
             self.writeDAC(self.current)
+            self.sweepProgressBar.setValue(self.current)
         return
 
     def startSweep(self):
@@ -286,12 +347,15 @@ class MyApp(QtWidgets.QWidget):
         self.sweepEnd = int(10 * float(self.sweepEndInput.text()))
         self.sweepStep = int(10 * float(self.sweepStepInput.text()))
         self.sweepInterval = int(self.sweepTimeInput.text())
+        # TODO: Check the data makes sense before starting
 
         self.current = self.sweepStart
         self.writeDAC(self.current)
         self.sweepEnabled = True
         self.btnSweepStart.setEnabled(False)
         self.btnSweepStop.setEnabled(True)
+        self.sweepProgressBar.setMinimum(self.sweepStart)
+        self.sweepProgressBar.setMaximum(self.sweepEnd)
         self.sweepTimer.start(self.sweepInterval)
         return
 
