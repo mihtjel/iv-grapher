@@ -4,6 +4,7 @@ import pyqtgraph as pg
 import sys, random
 import numpy
 import serial
+import threading
 
 samplesToStore = 256
 
@@ -37,6 +38,8 @@ class RingBuffer:
 class MyApp(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
+
+        self.serialLock = threading.Lock()
 
         self.current = 0
 
@@ -101,9 +104,13 @@ class MyApp(QtWidgets.QWidget):
         self.voltageLabel.setText("0V")
         label_layout.addRow(QtWidgets.QLabel("Voltage: "), self.voltageLabel)
 
+        self.resistanceLabel = QtWidgets.QLabel()
+        self.resistanceLabel.setText("∞ Ω")
+        label_layout.addRow(QtWidgets.QLabel("Equiv. resistance: "), self.resistanceLabel)
+
         self.avgVoltageLabel = QtWidgets.QLabel()
         self.avgVoltageLabel.setText("0V")
-        label_layout.addRow(QtWidgets.QLabel("Avg. voltage: "), self.avgVoltageLabel)
+        label_layout.addRow(QtWidgets.QLabel("Average voltage: "), self.avgVoltageLabel)
 
         # Controls for high/low voltage and current
         scaling_control_layout = QtWidgets.QFormLayout()
@@ -217,18 +224,30 @@ class MyApp(QtWidgets.QWidget):
         # self.timer2.start(5000)
 
     def highVoltageChange(self):
-        self.highVoltage = self.highVoltageInput.isChecked()
-        if (self.highVoltage):
-            self.serial.write('V'.encode('ascii'))
+        if self.serial.is_open:
+            if self.serialLock.acquire():
+                self.highVoltage = self.highVoltageInput.isChecked()
+                if (self.highVoltage):
+                    self.serial.write('V'.encode('ascii'))
+                else:
+                    self.serial.write('v'.encode('ascii'))
+                self.serialLock.release()
         else:
-            self.serial.write('v'.encode('ascii'))
+            showError("Serial port not open.","Please open serial port first.")
+            self.highVoltageInput.setChecked(self.highVoltage)
 
     def highCurrentChange(self):
-        self.highCurrent = self.highCurrentInput.isChecked()
-        if (self.highCurrent):
-            self.serial.write('C'.encode('ascii'))
+        if self.serial.is_open:
+            if self.serialLock.acquire():
+                self.highCurrent = self.highCurrentInput.isChecked()
+                if (self.highCurrent):
+                    self.serial.write('C'.encode('ascii'))
+                else:
+                    self.serial.write('c'.encode('ascii'))
+                self.serialLock.release()
         else:
-            self.serial.write('c'.encode('ascii'))
+            showError("Serial port not open.", "Please open serial port first.")
+            self.highCurrentInput.setChecked(self.highCurrent)
 
     def serialButtonClick(self):
         if (self.serial.is_open):
@@ -238,23 +257,27 @@ class MyApp(QtWidgets.QWidget):
         return
 
     def startSerial(self):
-        self.serialPort=self.serialPortInput.text()
-        self.serialSpeed=int(self.serialSpeedInput.text())
-        try:
-            self.serial = serial.Serial(self.serialPort, self.serialSpeed, timeout=5)
-        except serial.SerialException as exc:
-            print("Opening serial port failed: " + str(exc))
-            return
-        self.btnSerialToggle.setText("Close serial")
-        self.serial.readline()
-        self.serial.readline()
-        self.serial.timeout = 0.05
-        self.timer.start(100)
+        if self.serialLock.acquire():
+            self.serialPort=self.serialPortInput.text()
+            self.serialSpeed=int(self.serialSpeedInput.text())
+            try:
+                self.serial = serial.Serial(self.serialPort, self.serialSpeed, timeout=5)
+            except serial.SerialException as exc:
+                showError("Opening serial port failed", "Tried to open " + self.serialPort + " and failed.", str(exc))
+                return
+            self.btnSerialToggle.setText("Close serial")
+            self.serial.readline()
+            self.serial.readline()
+            self.serial.timeout = 0.05
+            self.timer.start(100)
+            self.serialLock.release()
 
     def stopSerial(self):
-        self.timer.stop()
-        self.serial.close()
-        self.btnSerialToggle.setText("Open serial")
+        if self.serialLock.acquire():
+            self.timer.stop()
+            self.serial.close()
+            self.serialLock.release()
+            self.btnSerialToggle.setText("Open serial")
 
     def createButtons(self):
         self.btnIncrease = QtWidgets.QPushButton('+0.1 μA')
@@ -304,6 +327,10 @@ class MyApp(QtWidgets.QWidget):
             self.setCurrentLabel.setText(str(currentSet) + "μA")
             self.voltageLabel.setText(str(voltageDrop) + "V")
             self.currentLabel.setText(str(currentRead) + "μA")
+            if (currentRead != 0):
+                self.resistanceLabel.setText("{0:.2f}".format(voltageDrop/(currentRead/1_000_000)) + "Ω")
+            else:
+                self.resistanceLabel.setText("∞ Ω")
             self.avgVoltageLabel.setText("{0:.4f}".format(numpy.nanmean(self.dropSamples.get())) + "V")
 
             if (self.sweepEnabled):
@@ -315,7 +342,14 @@ class MyApp(QtWidgets.QWidget):
     def writeDAC(self, data):
         # TODO: Data sanity on input
         serdata = ("S" + str(data) + '\n').encode('ascii')
-        self.serial.write(serdata)
+        if self.serial.is_open:
+            if self.serialLock.acquire(timeout=3):
+                self.serial.write(serdata)
+                self.serialLock.release()
+            else:
+                showError("Serial port locked.", "Could not acquire serial port lock within 3 seconds.")
+        else:
+            showError("Serial port not open.", "Please open serial port first.")
         return
 
     def randomDAC(self):
@@ -369,6 +403,18 @@ class MyApp(QtWidgets.QWidget):
         self.btnSweepStop.setEnabled(False)
         self.btnSweepStart.setEnabled(True)
         return
+
+
+def showError(errorheading, errortext, details=""):
+    msg = QtWidgets.QMessageBox()
+    msg.setIcon(QtWidgets.QMessageBox.Critical)
+    msg.setWindowTitle(errorheading)
+    msg.setText(errorheading)
+    msg.setText(errortext)
+    msg.setDetailedText(details)
+    msg.setStandardButtons(QtWidgets.QMessageBox.Ok)
+
+    return msg.exec_()
 
 
 app = QtWidgets.QApplication([])
