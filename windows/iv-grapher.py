@@ -7,6 +7,7 @@ import serial
 import threading
 
 samplesToStore = 256
+staticCalAddition = 2
 
 class VBar(QtWidgets.QFrame):
     def __init__(self):
@@ -315,9 +316,9 @@ class MyApp(QtWidgets.QWidget):
 
             highVoltage = int(linesplit[3])
             highCurrent = int(linesplit[4])
-            currentSet = int(linesplit[0])*(1+(99*highCurrent))/10
-            voltageDrop = int(linesplit[1])*(1+(9*highVoltage))/1000
-            currentRead = int(linesplit[2])*(1+(99*highCurrent))/10
+            currentSet = (int(linesplit[0])+staticCalAddition)*(1+(99*highCurrent))/10
+            voltageDrop = (int(linesplit[1])+staticCalAddition)*(1+(9*highVoltage))/1000
+            currentRead = (int(linesplit[2])+staticCalAddition)*(1+(99*highCurrent))/10
 
             self.currentSetSamples.append(currentSet)
             self.dropSamples.append(voltageDrop)
@@ -336,7 +337,7 @@ class MyApp(QtWidgets.QWidget):
             if (self.sweepEnabled):
                 self.sweepValuesVolts.append(voltageDrop)
                 self.sweepValuesCurrent.append(currentRead)
-                self.sweepValues.append(voltageDrop, currentRead)
+                self.sweepValues.append((voltageDrop, currentRead))
         return
 
     def writeDAC(self, data):
