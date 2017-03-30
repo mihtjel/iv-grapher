@@ -48,7 +48,7 @@ class MyApp(QtWidgets.QWidget):
         self.highCurrent = False
 
         self.serialPort = "COM5"
-        self.serialSpeed = 38400
+        self.serialSpeed = 14400
         self.serial = serial.Serial()
 
         # Default values for sweeping

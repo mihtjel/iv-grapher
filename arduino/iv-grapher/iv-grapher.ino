@@ -59,7 +59,7 @@ void setDAC(uint16_t value) {
 }
 
 void setup() {
-  Serial.begin(38400);
+  Serial.begin(14400);
   Serial.println("Setup");
   SPI.setClockDivider(SPI_CLOCK_DIV32);
   SPI.begin();
@@ -141,13 +141,7 @@ void loop() {
         data = inputdata; 
       }
     }
-    //if (count++ % 4 == 0) {
-      //data = ++data % 4096;
-      setDAC(data);
-    //}
+    setDAC(data);
   }
-
-//  readADC();
-//  delay(100);
 }
 
