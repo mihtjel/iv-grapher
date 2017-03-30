@@ -395,12 +395,25 @@ class MyApp(QtWidgets.QWidget):
         return
 
     def stopSweep(self):
-
         self.sweepEnabled = False
         self.sweepTimer.stop()
         a = numpy.array(self.sweepValues, [('volts', float), ('current', float)])
+        a.sort(order=['current', 'volts'])
+
+        avg = []
+        maxes = []
+        for i in numpy.unique(a['current']):
+            avg.append((i,numpy.average(a['volts'][(a['current']==i)])))
+            maxes.append((i, numpy.max(a['volts'][(a['current'] == i)])))
+        navg = numpy.array(avg, [('current', float), ('volts', float)])
+        nmax = numpy.array(maxes, [('current', float), ('volts', float)])
+        plotwindow = pg.plot(navg['volts'], navg['current'], clear=1, pen=1)
+        #plotwindow.plot(nmax['volts'],nmax['current'], pen=2)
+
         a.sort(order=['volts', 'current'])
-        pg.plot(a['volts'], a['current'], clear=1, pen=1)
+        #plotwindow.plot(a['volts'], a['current'], pen=3)
+        plotwindow.getPlotItem().setLabel('bottom',units='V')
+        plotwindow.getPlotItem().setLabel('left',units='µA')
         self.btnSweepStop.setEnabled(False)
         self.btnSweepStart.setEnabled(True)
         return
