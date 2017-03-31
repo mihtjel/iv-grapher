@@ -1,0 +1,8 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP REF191
+D Voltage reference.
+K voltage reference
+$ENDCMP
+#
+#End Doc Library

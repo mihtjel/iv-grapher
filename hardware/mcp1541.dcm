@@ -1,0 +1,8 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP MCP1541
+D Voltage reference. 1541 = 4.096v
+K voltage reference
+$ENDCMP
+#
+#End Doc Library

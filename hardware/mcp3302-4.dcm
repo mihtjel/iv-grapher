@@ -1,0 +1,8 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP MCP3302
+D MCP3302 13bit diff. input SPI ADC
+K ADC SPI differential
+$ENDCMP
+#
+#End Doc Library
