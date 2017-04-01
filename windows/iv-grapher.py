@@ -186,7 +186,7 @@ class MyApp(QtWidgets.QWidget):
         self.sweepStepInput.setAlignment(QtCore.Qt.AlignRight)
         self.sweepStepInput.setValidator(QtGui.QDoubleValidator(0.1, 1000.0, 1))
         step_sweep_row.addWidget(self.sweepStepInput)
-        step_sweep_row.addWidget(QtWidgets.QLabel("μA  (x100 above 400µA)"))
+        step_sweep_row.addWidget(QtWidgets.QLabel("μA  (>400µA: x100)"))
         sweep_layout.addRow(QtWidgets.QLabel("Step size:"), step_sweep_row)
 
         time_sweep_row = QtWidgets.QHBoxLayout()
@@ -206,6 +206,11 @@ class MyApp(QtWidgets.QWidget):
         self.sweepNewWindow = QtWidgets.QCheckBox("New sweep window")
         self.sweepNewWindow.setChecked(True)
         sweep_layout.addRow(self.sweepNewWindow)
+
+        self.sweepMinMax = QtWidgets.QCheckBox("Min/Max shading")
+        self.sweepMinMax.setChecked(True)
+        sweep_layout.addRow(self.sweepMinMax)
+
 
         sweep_layout.addRow(self.btnSweepStart)
         sweep_layout.addRow(self.btnSweepStop)
@@ -432,11 +437,12 @@ class MyApp(QtWidgets.QWidget):
 
         self.current = self.sweepStart
         self.writeDAC(self.current)
-        self.sweepEnabled = True
         self.btnSweepStart.setEnabled(False)
         self.btnSweepStop.setEnabled(True)
         self.sweepProgressBar.setMinimum(self.sweepStart)
         self.sweepProgressBar.setMaximum(self.sweepEnd)
+        self.sweepProgressBar.setValue(self.current)
+        self.sweepEnabled = True
         self.sweepTimer.start(self.sweepInterval)
         return
 
@@ -446,13 +452,31 @@ class MyApp(QtWidgets.QWidget):
         a = numpy.array(self.sweepValues, [('volts', float), ('current', float)])
         a.sort(order=['current', 'volts'])
 
+        # TODO: Manual ranging and automatic ranging checkboxes
+        range = self.sweepEnd - self.sweepStart
+        # Ranges are 10% of the total range above and below.
+        # Range is in 100nV increments, so divide by 10.
+        range_low = (self.sweepStart - (range / 10)) / 10
+        range_high = (self.sweepEnd + (range / 10)) / 10
+
         avg = []
         maxes = []
+        mins = []
+
         for i in numpy.unique(a['current']):
-            avg.append((i, numpy.average(a['volts'][(a['current']==i)])))
+            if (i < range_low or i > range_high):
+                continue
+            avg.append((i, numpy.average(a['volts'][(a['current'] == i)])))
             maxes.append((i, numpy.max(a['volts'][(a['current'] == i)])))
+            mins.append((i, numpy.min(a['volts'][(a['current'] == i)])))
+
+        if (len(avg) == 0):
+            showError("No elements", "No elements in plot", None)
+            return
+
         navg = numpy.array(avg, [('current', float), ('volts', float)])
         nmax = numpy.array(maxes, [('current', float), ('volts', float)])
+        nmin = numpy.array(mins, [('current', float), ('volts', float)])
 
         name = self.sweepNameInput.text()
         if (name == ""):
@@ -472,14 +496,20 @@ class MyApp(QtWidgets.QWidget):
                 self.plotwindow.getPlotItem().addLegend()
             self.plotwindow.plot(navg['volts'], navg['current'], pen=self.sweepPen, name=name)
 
+        if (self.sweepMinMax.isChecked()):
+            pmax = pg.PlotCurveItem(nmax['volts'],nmax['current'], pen=(196,196,196,128))
+            pmin = pg.PlotCurveItem(nmin['volts'], nmin['current'], pen=(196,196,196,128))
+            pfill = pg.FillBetweenItem(pmin, pmax, pg.mkBrush((128,128,128,128)),(128,0,0,128))
 
-        #self.plotwindow.plot(nmax['volts'],nmax['current'], pen=2)
+            self.plotwindow.getPlotItem().addItem(pmax)
+            self.plotwindow.getPlotItem().addItem(pmin)
+            self.plotwindow.getPlotItem().addItem(pfill)
 
         #a.sort(order=['volts', 'current'])
         #plotwindow.plot(a['volts'], a['current'], pen=3)
         self.btnSweepStop.setEnabled(False)
         self.btnSweepStart.setEnabled(True)
-        self.sweepProgressBar.setValue(0)
+        self.sweepProgressBar.setValue(self.sweepEnd)
         return
 
 
