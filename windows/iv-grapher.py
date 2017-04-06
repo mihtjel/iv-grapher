@@ -485,8 +485,9 @@ class MyApp(QtWidgets.QWidget):
         if (self.sweepNewWindow.isChecked() or not self.plotwindow != None):
             self.sweepPen = 1
             self.plotwindow = pg.plot()
-            self.plotwindow.getPlotItem().setLabel('bottom', units='V')
-            self.plotwindow.getPlotItem().setLabel('left', text='µA')
+            self.plotwindow.getPlotItem().setLabel('bottom', text='Voltage', units='V')
+            self.plotwindow.getPlotItem().setLabel('left', text='Current (µA)')
+            self.plotwindow.getPlotItem().setTitle('Sweep plot')
             if (self.sweepNameInput.text() != ""):
                 self.plotwindow.getPlotItem().addLegend()
             self.plotwindow.plot(navg['volts'], navg['current'], clear=1, pen=1, name=name)
