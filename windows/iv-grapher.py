@@ -48,7 +48,7 @@ class MyApp(QtWidgets.QWidget):
         self.highCurrent = False
 
         self.serialPort = "COM5"
-        self.serialSpeed = 38400
+        self.serialSpeed = 14400
         self.serial = serial.Serial()
 
         # Default values for sweeping
@@ -60,6 +60,9 @@ class MyApp(QtWidgets.QWidget):
         self.sweepValuesVolts = []
         self.sweepValuesCurrent = []
         self.sweepValues = []
+
+        self.plotwindow = None
+        self.sweepPen = 1
 
         self.setWindowTitle("IV-grapher")
 
@@ -99,7 +102,11 @@ class MyApp(QtWidgets.QWidget):
 
         self.currentLabel = QtWidgets.QLabel()
         self.currentLabel.setText("0μA")
-        label_layout.addRow(QtWidgets.QLabel("Read current: "), self.currentLabel)
+        label_layout.addRow(QtWidgets.QLabel("Measured current: "), self.currentLabel)
+
+        self.correctedCurrentLabel = QtWidgets.QLabel()
+        self.correctedCurrentLabel.setText("0μA")
+        label_layout.addRow(QtWidgets.QLabel("Corrected current: "), self.correctedCurrentLabel)
 
         self.voltageLabel = QtWidgets.QLabel()
         self.voltageLabel.setText("0V")
@@ -179,7 +186,7 @@ class MyApp(QtWidgets.QWidget):
         self.sweepStepInput.setAlignment(QtCore.Qt.AlignRight)
         self.sweepStepInput.setValidator(QtGui.QDoubleValidator(0.1, 1000.0, 1))
         step_sweep_row.addWidget(self.sweepStepInput)
-        step_sweep_row.addWidget(QtWidgets.QLabel("μA"))
+        step_sweep_row.addWidget(QtWidgets.QLabel("μA  (>400µA: x100)"))
         sweep_layout.addRow(QtWidgets.QLabel("Step size:"), step_sweep_row)
 
         time_sweep_row = QtWidgets.QHBoxLayout()
@@ -190,6 +197,20 @@ class MyApp(QtWidgets.QWidget):
         time_sweep_row.addWidget(self.sweepTimeInput)
         time_sweep_row.addWidget(QtWidgets.QLabel("ms"))
         sweep_layout.addRow(QtWidgets.QLabel("Time steps:"), time_sweep_row)
+
+        sweep_name_label = QtWidgets.QLabel("Sweep name")
+        self.sweepNameInput = QtWidgets.QLineEdit("")
+        self.sweepNameInput.setMaximumSize(QSize(150, 16777215))
+        sweep_layout.addRow(sweep_name_label,self.sweepNameInput)
+
+        self.sweepNewWindow = QtWidgets.QCheckBox("New sweep window")
+        self.sweepNewWindow.setChecked(True)
+        sweep_layout.addRow(self.sweepNewWindow)
+
+        self.sweepMinMax = QtWidgets.QCheckBox("Min/Max shading")
+        self.sweepMinMax.setChecked(True)
+        sweep_layout.addRow(self.sweepMinMax)
+
 
         sweep_layout.addRow(self.btnSweepStart)
         sweep_layout.addRow(self.btnSweepStop)
@@ -226,7 +247,7 @@ class MyApp(QtWidgets.QWidget):
 
     def highVoltageChange(self):
         if self.serial.is_open:
-            if self.serialLock.acquire():
+            if self.serialLock.acquire(timeout=5):
                 self.highVoltage = self.highVoltageInput.isChecked()
                 if (self.highVoltage):
                     self.serial.write('V'.encode('ascii'))
@@ -239,7 +260,7 @@ class MyApp(QtWidgets.QWidget):
 
     def highCurrentChange(self):
         if self.serial.is_open:
-            if self.serialLock.acquire():
+            if self.serialLock.acquire(timeout=5):
                 self.highCurrent = self.highCurrentInput.isChecked()
                 if (self.highCurrent):
                     self.serial.write('C'.encode('ascii'))
@@ -287,16 +308,19 @@ class MyApp(QtWidgets.QWidget):
         self.btnDecrease = QtWidgets.QPushButton('-0.1 μA')
         self.btnDecrease10 = QtWidgets.QPushButton('-1 μA')
         self.btnDecrease100 = QtWidgets.QPushButton('-10 μA')
+        self.btnZero = QtWidgets.QPushButton('0 μA')
         self.btnIncrease.clicked.connect(lambda: self.nudge(1))
         self.btnIncrease10.clicked.connect(lambda: self.nudge(10))
         self.btnIncrease100.clicked.connect(lambda: self.nudge(100))
         self.btnDecrease.clicked.connect(lambda: self.nudge(-1))
         self.btnDecrease10.clicked.connect(lambda: self.nudge(-10))
         self.btnDecrease100.clicked.connect(lambda: self.nudge(-100))
+        self.btnZero.clicked.connect(lambda: self.setCurrent(0))
         self.btnLayout = QtWidgets.QFormLayout()
         self.btnLayout.addWidget(self.btnIncrease100)
         self.btnLayout.addWidget(self.btnIncrease10)
         self.btnLayout.addWidget(self.btnIncrease)
+        self.btnLayout.addWidget(self.btnZero)
         self.btnLayout.addWidget(self.btnDecrease)
         self.btnLayout.addWidget(self.btnDecrease10)
         self.btnLayout.addWidget(self.btnDecrease100)
@@ -320,6 +344,11 @@ class MyApp(QtWidgets.QWidget):
             voltageDrop = (int(linesplit[1])+staticCalAddition)*(1+(9*highVoltage))/1000
             currentRead = (int(linesplit[2])+staticCalAddition)*(1+(99*highCurrent))/10
 
+            # The device leaks approx. 1µA per volt through the differential amplifier input
+            correctedCurrent = int(10*(currentRead - voltageDrop))/10
+            if (correctedCurrent<0):
+                correctedCurrent = 0.0
+
             self.currentSetSamples.append(currentSet)
             self.dropSamples.append(voltageDrop)
             self.currentSamples.append(currentRead)
@@ -328,6 +357,7 @@ class MyApp(QtWidgets.QWidget):
             self.setCurrentLabel.setText(str(currentSet) + "μA")
             self.voltageLabel.setText(str(voltageDrop) + "V")
             self.currentLabel.setText(str(currentRead) + "μA")
+            self.correctedCurrentLabel.setText(str(correctedCurrent) + "μA")
             if (currentRead != 0):
                 self.resistanceLabel.setText("{0:.2f}".format(voltageDrop/(currentRead/1_000_000)) + "Ω")
             else:
@@ -336,12 +366,25 @@ class MyApp(QtWidgets.QWidget):
 
             if (self.sweepEnabled):
                 self.sweepValuesVolts.append(voltageDrop)
-                self.sweepValuesCurrent.append(currentRead)
-                self.sweepValues.append((voltageDrop, currentRead))
+                self.sweepValuesCurrent.append(correctedCurrent)
+                self.sweepValues.append((voltageDrop, correctedCurrent))
         return
 
     def writeDAC(self, data):
         # TODO: Data sanity on input
+        if (data > 4096):
+            # High current mode
+            data = int(data/100)
+            self.actualWriteDAC(data)
+            if (not self.highCurrent):
+                self.highCurrentInput.setChecked(True)
+        else:
+            # Low current mode
+            if (self.highCurrent):
+                self.highCurrentInput.setChecked(False)
+            self.actualWriteDAC(data)
+
+    def actualWriteDAC(self, data):
         serdata = ("S" + str(data) + '\n').encode('ascii')
         if self.serial.is_open:
             if self.serialLock.acquire(timeout=3):
@@ -353,19 +396,27 @@ class MyApp(QtWidgets.QWidget):
             showError("Serial port not open.", "Please open serial port first.")
         return
 
-    def randomDAC(self):
-        self.writeDAC(random.randint(100, 2000))
+    def setCurrent(self, amount=0):
+        self.current = amount
+        self.writeDAC(self.current)
+        self.highCurrentInput.setChecked(False)
         return
 
     def nudge(self, amount=1):
-        # TODO: Limit to sensible ranges
         self.current += amount
+        if (self.current < 0):
+            self.current = 0
+        if (self.current > 250000):
+            self.current = 250000
         self.writeDAC(self.current)
         return
 
     def sweep(self):
         if (self.sweepEnabled):
-            self.current += self.sweepStep
+            if (self.current > 4096):
+                self.current += self.sweepStep*100
+            else:
+                self.current += self.sweepStep
             if (self.current > self.sweepEnd):
                 self.stopSweep()
                 self.current = self.sweepEnd
@@ -386,23 +437,80 @@ class MyApp(QtWidgets.QWidget):
 
         self.current = self.sweepStart
         self.writeDAC(self.current)
-        self.sweepEnabled = True
         self.btnSweepStart.setEnabled(False)
         self.btnSweepStop.setEnabled(True)
         self.sweepProgressBar.setMinimum(self.sweepStart)
         self.sweepProgressBar.setMaximum(self.sweepEnd)
+        self.sweepProgressBar.setValue(self.current)
+        self.sweepEnabled = True
         self.sweepTimer.start(self.sweepInterval)
         return
 
     def stopSweep(self):
-
         self.sweepEnabled = False
         self.sweepTimer.stop()
         a = numpy.array(self.sweepValues, [('volts', float), ('current', float)])
-        a.sort(order=['volts', 'current'])
-        pg.plot(a['volts'], a['current'], clear=1, pen=1)
+        a.sort(order=['current', 'volts'])
+
+        # TODO: Manual ranging and automatic ranging checkboxes
+        range = self.sweepEnd - self.sweepStart
+        # Ranges are 10% of the total range above and below.
+        # Range is in 100nV increments, so divide by 10.
+        range_low = (self.sweepStart - (range / 10)) / 10
+        range_high = (self.sweepEnd + (range / 10)) / 10
+
+        avg = []
+        maxes = []
+        mins = []
+
+        for i in numpy.unique(a['current']):
+            if (i < range_low or i > range_high):
+                continue
+            avg.append((i, numpy.average(a['volts'][(a['current'] == i)])))
+            maxes.append((i, numpy.max(a['volts'][(a['current'] == i)])))
+            mins.append((i, numpy.min(a['volts'][(a['current'] == i)])))
+
+        if (len(avg) == 0):
+            showError("No elements", "No elements in plot", None)
+            return
+
+        navg = numpy.array(avg, [('current', float), ('volts', float)])
+        nmax = numpy.array(maxes, [('current', float), ('volts', float)])
+        nmin = numpy.array(mins, [('current', float), ('volts', float)])
+
+        name = self.sweepNameInput.text()
+        if (name == ""):
+            name = None
+        # TODO: Detect that the plotwindow is closed, and open a new one.
+        if (self.sweepNewWindow.isChecked() or not self.plotwindow != None):
+            self.sweepPen = 1
+            self.plotwindow = pg.plot()
+            self.plotwindow.getPlotItem().setLabel('bottom', text='Voltage', units='V')
+            self.plotwindow.getPlotItem().setLabel('left', text='Current (µA)')
+            self.plotwindow.getPlotItem().setTitle('Sweep plot')
+            if (self.sweepNameInput.text() != ""):
+                self.plotwindow.getPlotItem().addLegend()
+            self.plotwindow.plot(navg['volts'], navg['current'], clear=1, pen=1, name=name)
+        else:
+            self.sweepPen += 1
+            if (self.sweepNameInput.text() != "" and self.plotwindow.getPlotItem().legend == None):
+                self.plotwindow.getPlotItem().addLegend()
+            self.plotwindow.plot(navg['volts'], navg['current'], pen=self.sweepPen, name=name)
+
+        if (self.sweepMinMax.isChecked()):
+            pmax = pg.PlotCurveItem(nmax['volts'],nmax['current'], pen=(196,196,196,128))
+            pmin = pg.PlotCurveItem(nmin['volts'], nmin['current'], pen=(196,196,196,128))
+            pfill = pg.FillBetweenItem(pmin, pmax, pg.mkBrush((128,128,128,128)),(128,0,0,128))
+
+            self.plotwindow.getPlotItem().addItem(pmax)
+            self.plotwindow.getPlotItem().addItem(pmin)
+            self.plotwindow.getPlotItem().addItem(pfill)
+
+        #a.sort(order=['volts', 'current'])
+        #plotwindow.plot(a['volts'], a['current'], pen=3)
         self.btnSweepStop.setEnabled(False)
         self.btnSweepStart.setEnabled(True)
+        self.sweepProgressBar.setValue(self.sweepEnd)
         return
 
 
