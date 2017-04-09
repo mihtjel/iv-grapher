@@ -7,7 +7,7 @@ import serial
 import threading
 
 samplesToStore = 256
-staticCalAddition = 2
+staticCalAddition = 0
 
 class VBar(QtWidgets.QFrame):
     def __init__(self):
